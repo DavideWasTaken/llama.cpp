@@ -80,6 +80,21 @@ The perplexity difference is within the error (+/- 0.43): with the hybrid cache,
 
 The upload budget matters: with the frequency policy, 8 MiB per token gives 60% hits, 16 MiB 66%, 32 MiB 70%, and 16 MiB is the fastest; on a slow link, more uploads cost more than the extra hits save.
 
+## Expert use by text type
+
+Three generations of 512 tokens, each started from text of its own type so that the model stays on it: Python code, a short story in Italian, and the same story in English. Each run has its own new profile. The matrix gives, for the median layer, the share of the expert uses of a text type that hit a cache filled from another type, with the cache size of these tests (17% of the experts, 43 per layer):
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/moe-cache-hybrid-topics-dark.svg">
+  <img alt="Cache hits by text type: a cache filled on code hits 72% on code, 17% on Italian and 9% on English text; Italian and English caches share about half of their hits" src="images/moe-cache-hybrid-topics-light.svg">
+</picture>
+
+- Code and prose use almost separate experts: a cache filled on code serves English prose 9% of the time, below the 17% of a random cache, and the two top-43 sets share 9-16% of their experts.
+- The same story in two languages shares about 40% of the top experts in layers 0-29 and 31% in layers 30-39: the language weighs more in the last layers.
+- In practice, use one profile per kind of use (for example `--moe-cache-profile code.moeprof` for coding and another for chat). A wrong profile only costs a cold start: with a 16 MiB budget the frequency policy replaces the cache in about 200 tokens.
+
+This is one sample per text type with decayed use counts: a first look, not a study.
+
 ## Limitations
 
 - Tested with one model, one GPU, on Windows with CUDA.

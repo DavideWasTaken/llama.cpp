@@ -44,12 +44,19 @@ def read_profile(path):
 def setup(t):
     plt.rcParams.update({
         "svg.fonttype": "none",
+        "svg.hashsalt": "moe-cache-hybrid",  # same ids at each run, so unchanged charts give no diff
         "font.family": ["Segoe UI", "DejaVu Sans", "sans-serif"],
         "font.size": 10,
         "text.color": t["ink"], "axes.labelcolor": t["ink2"],
         "xtick.color": t["muted"], "ytick.color": t["muted"],
         "axes.edgecolor": t["base"],
     })
+
+
+def save(fig, out):
+    # no date in the file, so unchanged charts give no diff
+    metadata = {"Date": None} if str(out).endswith(".svg") else None
+    fig.savefig(out, bbox_inches="tight", transparent=True, metadata=metadata)
 
 
 def plot_experts(scores, t, out, cache_frac):
@@ -76,7 +83,40 @@ def plot_experts(scores, t, out, cache_frac):
     cb.set_label("share of the layer's expert uses", color=t["ink2"])
     cb.ax.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0, decimals=0))
     ax.set_title("Few experts do most of the work", loc="left", color=t["ink"], fontsize=12, fontweight="bold", pad=10)
-    fig.savefig(out, bbox_inches="tight", transparent=True)
+    save(fig, out)
+    plt.close(fig)
+
+
+def plot_topics(profiles, t, out, cache_frac):
+    # share of the uses of a text type that hit a cache filled from another one (median layer)
+    names  = list(profiles)
+    shares = {n: s / s.sum(axis=1, keepdims=True) for n, s in profiles.items()}
+    k = int(round(cache_frac * next(iter(shares.values())).shape[1]))
+    m = np.zeros((len(names), len(names)))
+    for i, a in enumerate(names):
+        top = np.argsort(-shares[a], axis=1)[:, :k]
+        for j, b in enumerate(names):
+            m[i, j] = np.median(np.take_along_axis(shares[b], top, axis=1).sum(axis=1))
+
+    fig, ax = plt.subplots(figsize=(5.4, 4.0), facecolor="none")
+    cmap = LinearSegmentedColormap.from_list("seq", t["ramp"])
+    ax.imshow(m, cmap=cmap, vmin=0, vmax=1)
+    for i in range(len(names)):
+        for j in range(len(names)):
+            light_cell = m[i, j] < 0.5 if t is THEMES["light"] else m[i, j] > 0.5
+            ax.text(j, i, f"{m[i, j]:.0%}", ha="center", va="center", fontsize=12, fontweight="bold",
+                    color=THEMES["light"]["ink"] if light_cell else "#ffffff")
+    ax.set_xticks(range(len(names)), names, color=t["ink2"])
+    ax.set_yticks(range(len(names)), names, color=t["ink2"])
+    ax.set_xlabel("text being generated")
+    ax.set_ylabel("cache filled from")
+    ax.tick_params(length=0)
+    for s in ax.spines.values():
+        s.set_visible(False)
+    ax.set_title(f"Cache hits by text type ({cache_frac:.0%} of the experts cached)", loc="left", color=t["ink"],
+                 fontsize=12, fontweight="bold", pad=10)
+    fig.text(0.02, -0.04, f"median layer; a random cache of the same size would hit ~{cache_frac:.0%}", color=t["muted"], fontsize=9)
+    save(fig, out)
     plt.close(fig)
 
 
@@ -100,23 +140,32 @@ def plot_speed(t, out):
     ax.tick_params(axis="y", length=0)
     ax.legend(loc="lower left", bbox_to_anchor=(0, 1.0), ncol=2, frameon=False, labelcolor=t["ink2"],
               handlelength=1.2, borderaxespad=0.2)
-    fig.savefig(out, bbox_inches="tight", transparent=True)
+    save(fig, out)
     plt.close(fig)
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != "--png"]
-    ext  = "png" if "--png" in sys.argv else "svg"  # png: preview
+    argv = sys.argv[1:]
+    topics = {}
+    if "--topics" in argv:
+        # --topics name=profile,name=profile,...: cache hits of each text type with the cache of another
+        i = argv.index("--topics")
+        topics = {n: read_profile(p) for n, p in (x.split("=", 1) for x in argv[i + 1].split(","))}
+        del argv[i:i + 2]
+    args = [a for a in argv if a != "--png"]
+    ext  = "png" if "--png" in argv else "svg"  # png: preview
     if not args:
-        raise SystemExit("usage: moe-cache-hybrid-plots.py <profile> [out_dir] [--png]")
+        raise SystemExit("usage: moe-cache-hybrid-plots.py <profile> [out_dir] [--png] [--topics name=profile,...]")
     scores = read_profile(args[0])
     out_dir = Path(args[1]) if len(args) > 1 else Path(__file__).parent.parent / "docs" / "images"
     out_dir.mkdir(parents=True, exist_ok=True)
-    cache_frac = 0.17  # 3200 MiB of cache = 17% of the experts of Qwen3.6-35B-A3B UD-Q4_K_M
+    cache_frac = 1737 / (40 * 256)  # 3200 MiB of cache = 1737 experts of Qwen3.6-35B-A3B UD-Q4_K_M, 43 per layer
     for name, t in THEMES.items():
         setup(t)
         plot_experts(scores, t, out_dir / f"moe-cache-hybrid-experts-{name}.{ext}", cache_frac)
         plot_speed(t, out_dir / f"moe-cache-hybrid-speed-{name}.{ext}")
+        if topics:
+            plot_topics(topics, t, out_dir / f"moe-cache-hybrid-topics-{name}.{ext}", cache_frac)
     print(f"charts written to {out_dir}")
 
 

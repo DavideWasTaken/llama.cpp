@@ -29,6 +29,17 @@ A small cache is enough because the router is far from uniform: in each layer a 
 - **Frequency-based cache**: decayed use counts decide which experts stay in VRAM, within an upload budget per token.
 - **Warm start**: a profile file saves the scores at exit and fills the cache at the next start.
 
+## Different text, different experts
+
+Which experts are hot depends on what the model writes. A cache filled while writing Python code serves an English story only 9% of the time, less than a random cache would; the same story in Italian and in English shares about 40% of the hot experts. So the profile should match the use (one for code, one for chat), and a wrong profile is a cold start that the frequency policy corrects in a few hundred tokens.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../docs/images/moe-cache-hybrid-topics-dark.svg">
+  <img alt="Cache hits by text type: a cache filled on code hits 72% on code, 17% on Italian and 9% on English text; Italian and English caches share about half of their hits" src="../docs/images/moe-cache-hybrid-topics-light.svg">
+</picture>
+
+One 512-token sample per text type, so take it as a first look rather than a study.
+
 ## Quick start
 
 ```bash
