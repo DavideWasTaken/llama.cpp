@@ -956,6 +956,11 @@ struct ggml_backend_sched {
     int n_copies;
     int cur_copy;
     int next_copy;
+
+    // inputs of split prefetched_split already copied, see ggml_backend_sched_prefetch_inputs
+    struct ggml_tensor * prefetched[GGML_SCHED_MAX_SPLIT_INPUTS];
+    int n_prefetched;
+    int prefetched_split;
     ggml_backend_event_t events[GGML_SCHED_MAX_BACKENDS][GGML_SCHED_MAX_COPIES];
     struct ggml_tensor ** graph_inputs;
     int n_graph_inputs;
@@ -1862,6 +1867,67 @@ static void ggml_backend_sched_copy_input(ggml_backend_sched_t sched, struct ggm
     }
 }
 
+// true if a node of split writes the data of t (a view only reads it)
+static bool ggml_backend_sched_split_writes(const struct ggml_backend_sched_split * split, const struct ggml_tensor * t) {
+    for (int i = 0; i < split->graph.n_nodes; i++) {
+        const struct ggml_tensor * node = split->graph.nodes[i];
+        const struct ggml_tensor * base = node;
+        while (base->view_src != NULL) {
+            base = base->view_src;
+        }
+        if (base == t && !ggml_is_view_op(node->op)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// a CPU split after a device split waits for the device split when it copies its inputs from the device
+// copy now, before the device split runs, the inputs that earlier splits computed, so that both splits can run at the same time
+static void ggml_backend_sched_prefetch_inputs(ggml_backend_sched_t sched, int split_id) {
+    sched->n_prefetched = 0;
+    sched->prefetched_split = -1;
+
+    const int cpu_id = sched->n_backends - 1;
+    if (sched->n_copies != 1 || split_id + 1 >= sched->n_splits) {
+        return;
+    }
+    const struct ggml_backend_sched_split * split = &sched->splits[split_id];
+    struct ggml_backend_sched_split * next = &sched->splits[split_id + 1];
+    if (split->backend_id == cpu_id || next->backend_id != cpu_id) {
+        return;
+    }
+
+    sched->prefetched_split = split_id + 1;
+    for (int i = 0; i < next->n_inputs && sched->n_prefetched < GGML_SCHED_MAX_SPLIT_INPUTS; i++) {
+        struct ggml_tensor * input = next->inputs[i];
+        if ((input->flags & GGML_TENSOR_FLAG_INPUT) || ggml_backend_sched_is_host_weight(input)) {
+            continue;
+        }
+        const struct ggml_tensor * base = input;
+        while (base->view_src != NULL) {
+            base = base->view_src;
+        }
+        if (ggml_backend_sched_split_writes(split, base)) {
+            continue;
+        }
+        ggml_backend_sched_copy_input(sched, next, input);
+        sched->prefetched[sched->n_prefetched++] = input;
+    }
+}
+
+static bool ggml_backend_sched_is_prefetched(ggml_backend_sched_t sched, int split_id, const struct ggml_tensor * input) {
+    if (split_id != sched->prefetched_split) {
+        return false;
+    }
+    for (int i = 0; i < sched->n_prefetched; i++) {
+        if (sched->prefetched[i] == input) {
+            return true;
+        }
+    }
+    return false;
+}
+
 static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t sched) {
     GGML_ASSERT(sched);
     struct ggml_backend_sched_split * splits = sched->splits;
@@ -1886,7 +1952,8 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
         // copy the input tensors to the split backend
         // the weights in host memory are copied last, so that the copy callback can read the other inputs of the split
         for (int input_id = 0; input_id < split->n_inputs; input_id++) {
-            if (!ggml_backend_sched_is_host_weight(split->inputs[input_id])) {
+            if (!ggml_backend_sched_is_host_weight(split->inputs[input_id]) &&
+                    !ggml_backend_sched_is_prefetched(sched, split_id, split->inputs[input_id])) {
                 ggml_backend_sched_copy_input(sched, split, split->inputs[input_id]);
             }
         }
@@ -1895,6 +1962,8 @@ static enum ggml_status ggml_backend_sched_compute_splits(ggml_backend_sched_t s
                 ggml_backend_sched_copy_input(sched, split, split->inputs[input_id]);
             }
         }
+
+        ggml_backend_sched_prefetch_inputs(sched, split_id);
 
         if (!sched->callback_eval) {
             enum ggml_status ec = ggml_backend_graph_compute_async(split_backend, &split->graph);
@@ -1971,6 +2040,7 @@ ggml_backend_sched_t ggml_backend_sched_new(
 
     sched->n_backends = n_backends;
     sched->n_copies = parallel ? GGML_SCHED_MAX_COPIES : 1;
+    sched->prefetched_split = -1;
 
     // initialize hash table
     // FIXME: needs to be size*2 to account for leafs (do it in graph_split instead)
