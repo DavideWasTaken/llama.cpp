@@ -316,6 +316,7 @@ endif()
 llama_build(test-backend-ops.cpp LINK ggml)
 
 llama_build_and_test(test-tiled-mulmat.cpp LINK ggml)
+llama_build_and_test(test-mul-mat-id-skip.cpp LINK ggml)
 llama_build_and_test(test-model-load-cancel.cpp LABEL "model")
 llama_build_and_test(test-autorelease.cpp       LABEL "model")
 llama_build_and_test(test-backend-sampler.cpp   LABEL "model")
