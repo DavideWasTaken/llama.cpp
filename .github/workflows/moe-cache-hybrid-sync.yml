@@ -26,6 +26,8 @@ concurrency:
 env:
   BRANCH: moe-cache-hybrid
   UPSTREAM: https://github.com/ggml-org/llama.cpp.git
+  # gh would pick the "upstream" remote as the default repository: issues and PRs must stay in this fork
+  GH_REPO: ${{ github.repository }}
 
 jobs:
   sync:
@@ -129,4 +131,4 @@ jobs:
             echo "- [x] CPU build and \`test-mul-mat-id-skip\`"
             echo "- [ ] \`scripts/moe-cache-hybrid-check.ps1\` on a CUDA machine (hybrid cache, perplexity, determinism, speed)"
           } > body.md
-          gh pr create --base "$BRANCH" --head "$sync" --title "sync: upstream ${{ steps.merge.outputs.upstream }}" --body-file body.md
+          gh pr create --repo "$GH_REPO" --base "$BRANCH" --head "$sync" --title "sync: upstream ${{ steps.merge.outputs.upstream }}" --body-file body.md
