@@ -8,14 +8,21 @@ When the experts of a mixture-of-experts model do not fit in VRAM, llama.cpp can
 
 Qwen3.6-35B-A3B on an RTX 5060 Ti 8 GB (PCIe 3.0 x8) with an i7-10700K and DDR4-2666:
 
-| Token generation              | llama.cpp | this fork          |
-|-------------------------------|----------:|-------------------:|
-| llama-server, MTP draft       | 38.0 t/s  | **49.7 t/s (+31%)**|
-| no speculative decoding       | 33.5 t/s  | **43.0 t/s (+26%)**|
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../docs/images/moe-cache-hybrid-speed-dark.svg">
+  <img alt="Token generation: llama.cpp 38.0 t/s vs this fork 49.7 t/s with MTP (+31%), 34.1 vs 43.0 t/s without speculative decoding (+26%)" src="../docs/images/moe-cache-hybrid-speed-light.svg">
+</picture>
 
 For comparison, the upstream MoE cache gives 25.6 t/s on the same machine without speculative decoding. Same output: perplexity within the error, and the scheduler change gives the same text bit for bit. Prompt processing is 16% slower, since all the experts stay in RAM.
 
 ## How it works
+
+A small cache is enough because the router is far from uniform: in each layer a few experts get most of the tokens. With 17% of the experts in VRAM, the GPU serves 79% of the expert uses of the median layer, and the CPU computes the rest.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../docs/images/moe-cache-hybrid-experts-dark.svg">
+  <img alt="Heatmap of expert use in the 40 MoE layers of Qwen3.6-35B-A3B: in each layer the most used 17% of the experts get 79% of the uses" src="../docs/images/moe-cache-hybrid-experts-light.svg">
+</picture>
 
 - **Hits on the GPU, misses on the CPU**: each expert of a token runs on one device only, the two partial results are added.
 - **CPU and GPU in parallel**: the scheduler copies the inputs of the CPU split before it launches the GPU split.

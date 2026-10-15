@@ -17,6 +17,13 @@ On a fast link this is a large gain. On a slow link the uploads cost more than t
 3. **Frequency-based cache.** Each expert has a use count that decays at each step. A missed expert enters the cache only if it scores higher than the cached expert it would replace, within an upload budget per token (`--moe-cache-upload-mib`, default 16).
 4. **Warm start.** `--moe-cache-profile FILE` saves the scores at exit and, at the next start, fills the cache with the experts that scored highest.
 
+Why a small cache is enough: the router is far from uniform. In each layer a few experts get most of the tokens, so with 17% of the experts in VRAM the GPU serves 79% of the expert uses of the median layer. Half of the uses go to 18 of the 256 experts, and about 80 experts of each layer are not used at all in a short text. (Decayed use counts from a profile after 1024 generated tokens; `scripts/moe-cache-hybrid-plots.py` draws this map from any profile.)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/moe-cache-hybrid-experts-dark.svg">
+  <img alt="Heatmap of expert use in the 40 MoE layers of Qwen3.6-35B-A3B: in each layer the most used 17% of the experts get 79% of the uses" src="images/moe-cache-hybrid-experts-light.svg">
+</picture>
+
 How the result stays exact: each expert of each token has a non-zero output in only one of the two branches. On the GPU, a missed expert reads a zero slot of the cache (one per position in the token, since `mul_mat_id` does not allow the same expert twice in a token). On the CPU, a cached expert has the id -1, which `mul_mat_id` now skips with a zero output.
 
 ## Usage
@@ -51,10 +58,17 @@ Why this machine is the case for the hybrid mode: the CPU reads an expert from R
 
 The baseline is the fastest configuration without the cache (`--n-cpu-moe 33`). Same VRAM in all the runs.
 
-| Generation (t/s)                                   | baseline | upstream cache | hybrid | hybrid + profile |
-|----------------------------------------------------|---------:|---------------:|-------:|-----------------:|
-| 1024 tokens, no speculative decoding               | 33.5     | 25.6           | 39.8   | **43.0 (+26%)**  |
-| llama-server, MTP draft (2 runs, 3 prompts each)   | 38.0     | -              | -      | **49.7 (+31%)**  |
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="images/moe-cache-hybrid-speed-dark.svg">
+  <img alt="Token generation: llama.cpp 38.0 t/s vs this fork 49.7 t/s with MTP (+31%), 34.1 vs 43.0 t/s without speculative decoding (+26%)" src="images/moe-cache-hybrid-speed-light.svg">
+</picture>
+
+| Generation (t/s)                                   | baseline  | upstream cache | hybrid | hybrid + profile |
+|----------------------------------------------------|----------:|---------------:|-------:|-----------------:|
+| 1024 tokens, no speculative decoding               | 33.5-34.1 | 25.6           | 39.8   | **43.0 (+26%)**  |
+| llama-server, MTP draft (2 runs, 3 prompts each)   | 38.0      | -              | -      | **49.7 (+31%)**  |
+
+Each result is compared with the baseline measured in the same session (33.5-34.1 t/s across sessions).
 
 | Other measurements                    | baseline | hybrid + profile |
 |---------------------------------------|---------:|-----------------:|
@@ -83,6 +97,7 @@ The upload budget matters: with the frequency policy, 8 MiB per token gives 60% 
 | `include/llama.h`, `common/` | `--moe-cache-hybrid`, `--moe-cache-upload-mib`, `--moe-cache-profile` |
 | `tests/test-mul-mat-id-skip.cpp` | CPU test of the negative ids |
 | `scripts/moe-cache-hybrid-check.ps1` | GPU check: test, perplexity, determinism, speed |
+| `scripts/moe-cache-hybrid-plots.py` | charts of this page (expert map from a profile, speed) |
 | `.github/workflows/moe-cache-hybrid-sync.yml` | weekly merge of upstream into a PR, CPU build and test |
 
 ## Keeping up with upstream
