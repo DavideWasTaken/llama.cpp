@@ -1,0 +1,132 @@
+# Keeps the moe-cache-hybrid fork up to date with ggml-org/llama.cpp, without touching the branch by itself:
+# - master of the fork follows upstream master
+# - upstream master is merged into a sync/<date>-<sha> branch made from moe-cache-hybrid
+# - conflicts open (or update) an issue; a clean merge is built and tested on CPU, then a PR to moe-cache-hybrid is opened
+# The hybrid cache needs a GPU, so the PR asks for scripts/moe-cache-hybrid-check.ps1 to be run on a CUDA machine before merging.
+#
+# Needs the SYNC_TOKEN secret: a fine-grained token for this repository with Contents, Workflows, Pull requests and Issues
+# (read and write). GITHUB_TOKEN cannot push the changes that upstream makes to .github/workflows.
+
+name: moe-cache-hybrid sync
+
+on:
+  schedule:
+    - cron: "0 4 * * 1" # every Monday, 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: moe-cache-hybrid-sync
+  cancel-in-progress: false
+
+env:
+  BRANCH: moe-cache-hybrid
+  UPSTREAM: https://github.com/ggml-org/llama.cpp.git
+
+jobs:
+  sync:
+    if: github.repository != 'ggml-org/llama.cpp'
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.BRANCH }}
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Merge upstream
+        id: merge
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "$UPSTREAM"
+          git fetch --no-tags upstream master
+
+          # master of the fork mirrors upstream, it carries no change of its own
+          git push origin upstream/master:refs/heads/master
+
+          if git merge-base --is-ancestor upstream/master HEAD; then
+            echo "already up to date with upstream"
+            echo "status=uptodate" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          up=$(git rev-parse --short upstream/master)
+          sync="sync/$(date -u +%Y-%m-%d)-$up"
+          echo "upstream=$up" >> "$GITHUB_OUTPUT"
+          echo "sync=$sync"   >> "$GITHUB_OUTPUT"
+
+          if git ls-remote --exit-code --heads origin "$sync" > /dev/null; then
+            echo "$sync already exists"
+            echo "status=exists" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git switch -c "$sync"
+          if git merge --no-edit upstream/master; then
+            echo "status=merged" >> "$GITHUB_OUTPUT"
+          else
+            git diff --name-only --diff-filter=U > conflicts.txt
+            git merge --abort
+            echo "status=conflict" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Report conflict
+        if: steps.merge.outputs.status == 'conflict'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          {
+            echo "Merging ggml-org/llama.cpp@${{ steps.merge.outputs.upstream }} into \`$BRANCH\` has conflicts in:"
+            echo
+            sed 's/.*/- `&`/' conflicts.txt
+            echo
+            echo "Resolve them locally:"
+            echo
+            echo '```'
+            echo "git fetch upstream"
+            echo "git switch $BRANCH"
+            echo "git merge upstream/master"
+            echo '```'
+          } > body.md
+
+          issue=$(gh issue list --state open --search "sync conflict in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body-file body.md
+          else
+            gh issue create --title "sync conflict with upstream" --body-file body.md
+          fi
+
+      - name: Build (CPU)
+        if: steps.merge.outputs.status == 'merged'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DGGML_NATIVE=OFF -DLLAMA_BUILD_TESTS=ON -DLLAMA_OPENSSL=OFF
+          cmake --build build -j "$(nproc)" --target test-mul-mat-id-skip llama-server llama-completion llama-perplexity
+
+      - name: Test (CPU)
+        if: steps.merge.outputs.status == 'merged'
+        run: ./build/bin/test-mul-mat-id-skip
+
+      - name: Open PR
+        if: steps.merge.outputs.status == 'merged'
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_TOKEN }}
+        run: |
+          sync="${{ steps.merge.outputs.sync }}"
+          git push origin "$sync"
+          {
+            echo "Merges ggml-org/llama.cpp@${{ steps.merge.outputs.upstream }} into \`$BRANCH\`."
+            echo
+            echo "- [x] merge without conflicts"
+            echo "- [x] CPU build and \`test-mul-mat-id-skip\`"
+            echo "- [ ] \`scripts/moe-cache-hybrid-check.ps1\` on a CUDA machine (hybrid cache, perplexity, determinism, speed)"
+          } > body.md
+          gh pr create --base "$BRANCH" --head "$sync" --title "sync: upstream ${{ steps.merge.outputs.upstream }}" --body-file body.md
