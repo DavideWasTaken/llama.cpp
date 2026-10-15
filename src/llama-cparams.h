@@ -3,6 +3,7 @@
 #include "llama.h"
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #define LLAMA_MAX_SEQ 256
@@ -56,6 +57,9 @@ struct llama_cparams {
     bool training;           // set by llama_opt_init()
 
     size_t moe_cache_size;
+    size_t moe_cache_upload; // hybrid MoE cache: bytes of missed experts added to the cache per decode step
+    bool   moe_cache_hybrid;
+    std::string moe_cache_profile; // hybrid MoE cache: file of expert scores, empty = none
 
     std::vector<bool> embeddings_layer_inp; // [n_layer()] extract input embeddings for layer
 

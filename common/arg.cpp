@@ -2787,6 +2787,32 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_MOE_CACHE_MIB"));
     add_opt(common_arg(
+        {"--moe-cache-hybrid"},
+        "with --moe-cache-mib: compute the experts missing from the cache on the CPU, while the GPU computes the cached ones,\n"
+        "instead of uploading every miss before the layer runs; faster when the link to the GPU is slow (e.g. PCIe 3.0) (default: disabled)",
+        [](common_params & params) {
+            params.moe_cache_hybrid = true;
+        }
+    ).set_env("LLAMA_ARG_MOE_CACHE_HYBRID"));
+    add_opt(common_arg(
+        {"--moe-cache-upload-mib"}, "N",
+        string_format("with --moe-cache-hybrid: MiB of missed experts added to the cache per decode step (default: %d)",
+            (int) (params.moe_cache_upload/1024/1024)),
+        [](common_params & params, int value) {
+            if (value < 0) {
+                throw std::invalid_argument("invalid value");
+            }
+            params.moe_cache_upload = (size_t) value*1024*1024;
+        }
+    ).set_env("LLAMA_ARG_MOE_CACHE_UPLOAD_MIB"));
+    add_opt(common_arg(
+        {"--moe-cache-profile"}, "FNAME",
+        "with --moe-cache-hybrid: file of expert use scores, fills the cache at start (if it exists) and is saved at exit (default: none)",
+        [](common_params & params, const std::string & value) {
+            params.moe_cache_profile = value;
+        }
+    ).set_env("LLAMA_ARG_MOE_CACHE_PROFILE"));
+    add_opt(common_arg(
         {"-ncffn", "--n-cpu-ffn"}, "N",
         "keep the dense FFN weights of the first N layers in the CPU\n"
         "(dense models; for MoE expert weights use --n-cpu-moe)",

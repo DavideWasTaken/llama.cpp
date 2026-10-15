@@ -13,7 +13,10 @@ struct llama_model;
 class llama_moe_cache {
 public:
     // backends are all the backends of the context, each GPU gets its own cache of the given size for the layers assigned to it
-    llama_moe_cache(const llama_model & model, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size);
+    // hybrid: compute the cache misses on the CPU, add up to upload_budget bytes of them to the cache per decode step
+    // profile (hybrid only, may be null): file with the expert scores, loaded to fill the cache at start and saved at exit
+    llama_moe_cache(const llama_model & model, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size,
+            bool hybrid = false, size_t upload_budget = 0, const char * profile = nullptr);
     ~llama_moe_cache();
 
     // the device that caches layer il
@@ -21,6 +24,10 @@ public:
 
     // the slot map of layer il, if its experts can be read from the cache for n_tokens tokens, nullptr otherwise
     ggml_tensor * get_slot_map(int32_t il, int64_t n_tokens, int64_t n_expert_used) const;
+
+    // hybrid mode: the ids of the experts of layer il computed on the CPU (-1 if in the cache), set by the slot map copy
+    // nullptr if not in hybrid mode
+    ggml_tensor * get_cpu_ids(int32_t il) const;
 
     // the experts of w in the cache, nullptr if w is not cached
     ggml_tensor * get_experts(const ggml_tensor * w) const;

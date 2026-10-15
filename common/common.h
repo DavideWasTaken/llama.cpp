@@ -595,7 +595,10 @@ struct common_params {
     ggml_type cache_type_k = GGML_TYPE_F16; // KV cache data type for the K
     ggml_type cache_type_v = GGML_TYPE_F16; // KV cache data type for the V
 
-    size_t moe_cache_size = 0; // GPU cache size in bytes for the MoE experts kept in the CPU, split among the GPUs like the layers
+    size_t moe_cache_size   = 0;               // GPU cache size in bytes for the MoE experts kept in the CPU, split among the GPUs like the layers
+    bool   moe_cache_hybrid = false;           // compute the experts missing from the MoE cache on the CPU instead of uploading them first
+    size_t moe_cache_upload = 16ull*1024*1024; // hybrid MoE cache: bytes of missed experts added to the cache per decode step
+    std::string moe_cache_profile;             // hybrid MoE cache: file of expert scores, fills the cache at start and is saved at exit
 
     common_conversation_mode conversation_mode = COMMON_CONVERSATION_MODE_AUTO;
 
