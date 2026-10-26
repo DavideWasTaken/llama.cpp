@@ -66,6 +66,8 @@ set(GGML_OPENCL_KERNELS
     moe_add_id_glu
     argmax
     argsort
+    top_k
+    lightning_indexer
     tri
     fill
     clamp
@@ -99,6 +101,12 @@ set(GGML_OPENCL_KERNELS
     mul_mv_q4_0_f32_1d_16x_flat
     mul_mv_q4_1_f32
     mul_mv_q4_1_f32_flat
+    gemm_noshuffle_q2_k_q8_1_dp4a
+    gemv_noshuffle_q2_k_f32
+    gemm_noshuffle_q2_k_f32
+    mul_mv_q2_k_f32
+    mul_mv_q2_k_f32_flat
+    mul_mm_q2_k_f32_l4_lm
     mul_mv_q4_k_f32
     mul_mv_q4_k_f32_flat
     mul_mv_q5_0_f32
@@ -241,6 +249,7 @@ set(GGML_OPENCL_KERNELS
     mul_mm_f16_f32_kq_kqv
     conv2d
     conv2d_f16_f32
+    conv2_dw
     flash_attn_repack
     flash_attn_pre_f16
     flash_attn_f32_f16

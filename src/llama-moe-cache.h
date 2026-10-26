@@ -15,7 +15,7 @@ public:
     // backends are all the backends of the context, each GPU gets its own cache of the given size for the layers assigned to it
     // hybrid: compute the cache misses on the CPU, add up to upload_budget bytes of them to the cache per decode step
     // profile (hybrid only, may be null): file with the expert scores, loaded to fill the cache at start and saved at exit
-    llama_moe_cache(const llama_model & model, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size,
+    llama_moe_cache(const llama_model & model, bool no_alloc, const std::vector<ggml_backend_t> & backends, const std::vector<ggml_backend_buffer_type_t> & bufts, size_t size,
             bool hybrid = false, size_t upload_budget = 0, const char * profile = nullptr);
     ~llama_moe_cache();
 
