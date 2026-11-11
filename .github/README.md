@@ -1,5 +1,8 @@
 # llama.cpp with a hybrid MoE cache
 
+> [!NOTE]
+> **Archived.** This was an experiment from October 2026. Upstream llama.cpp later added the same core idea, running the experts missing from the MoE cache on the CPU ([#30966](https://github.com/ggml-org/llama.cpp/pull/30966), merged 2026-11-07), along with a new cache policy ([#31233](https://github.com/ggml-org/llama.cpp/pull/31233)). The numbers below compare against llama.cpp as of mid-October 2026, not the current version. This branch no longer follows upstream.
+
 A fork of [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp) that makes MoE models faster on GPUs connected through a slow link, such as PCIe 3.0.
 
 When the experts of a mixture-of-experts model do not fit in VRAM, llama.cpp can keep the most used ones in a GPU cache (`--moe-cache-mib`), but every expert missing from the cache is uploaded before the layer runs. On a slow link the uploads cost more than they save, and the cache ends up slower than no cache at all. The **hybrid mode** computes the cached experts on the GPU and the missing ones on the CPU, at the same time, with nothing uploaded on the critical path.
